@@ -1,0 +1,547 @@
+/* ParkNow - 一鍵找車位 PWA */
+:root {
+  --primary: #1a73e8;
+  --primary-dark: #1557b0;
+  --accent: #00b894;
+  --accent-dark: #009874;
+  --danger: #e74c3c;
+  --warning: #f39c12;
+  --success: #27ae60;
+  --bg-card: #ffffff;
+  --bg-card-alt: #f0f2f5;
+  --text: #202124;
+  --text-muted: #70757a;
+  --radius: 12px;
+  --shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f0f2f5;
+  color: var(--text);
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Map */
+#map {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 1;
+}
+
+/* Search Bar */
+.search-bar {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top, 0px));
+  left: 12px; right: 12px;
+  z-index: 1000;
+}
+
+.search-input-wrap {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  border-radius: 24px;
+  padding: 0 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  height: 44px;
+}
+
+.search-icon { flex-shrink: 0; margin-right: 8px; }
+
+.search-input-wrap input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  background: transparent;
+  color: var(--text);
+}
+
+.search-input-wrap input::placeholder { color: #999; }
+
+.search-clear {
+  background: none; border: none;
+  font-size: 20px; color: #999;
+  cursor: pointer; padding: 0 4px;
+  display: none;
+}
+
+.search-clear.show { display: block; }
+
+.search-suggestions {
+  background: #fff;
+  border-radius: 12px;
+  margin-top: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  overflow: hidden;
+  display: none;
+}
+
+.search-suggestions.show { display: block; }
+
+.suggestion-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item:hover { background: #f5f5f5; }
+
+.suggestion-name { font-weight: 500; }
+.suggestion-addr { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+/* Radius Bar */
+.radius-bar {
+  position: absolute;
+  top: calc(62px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border-radius: 20px;
+  padding: 4px 6px 4px 12px;
+  box-shadow: var(--shadow);
+}
+
+.radius-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.radius-options { display: flex; gap: 4px; }
+
+.radius-btn {
+  background: var(--bg-card-alt);
+  border: none;
+  border-radius: 14px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radius-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.radius-btn:hover:not(.active) {
+  background: #e0e4ea;
+}
+
+/* Status Badge */
+.status-badge {
+  position: absolute;
+  top: calc(100px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  background: #fff;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  box-shadow: var(--shadow);
+}
+
+/* Find Button */
+.find-btn-container {
+  position: absolute;
+  bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+}
+
+.find-btn {
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 184, 148, 0.4);
+  transition: transform 0.2s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.find-btn:active { transform: scale(0.92); }
+.find-btn .icon { font-size: 22px; }
+.find-btn.loading { animation: pulse 1.2s infinite; }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+/* Recommend Banner */
+.recommend-banner {
+  position: absolute;
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  left: 12px; right: 12px;
+  z-index: 1000;
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recommend-banner.show { display: flex; }
+
+.recommend-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recommend-content { flex: 1; min-width: 0; }
+
+.recommend-label {
+  font-size: 10px;
+  color: var(--primary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.recommend-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recommend-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.recommend-nav-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.recommend-nav-btn:active { opacity: 0.8; }
+
+/* Top 5 Switch */
+.top5-switch {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.top5-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-card-alt);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  min-width: 60px;
+  transition: all 0.2s;
+}
+
+.top5-btn.active {
+  border-color: var(--primary);
+  background: #e8f0fe;
+}
+
+.top5-rank {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.top5-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.top5-avail {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.recommend-more {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: center;
+}
+
+/* Bottom Panel */
+.bottom-panel {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 1000;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  max-height: 60vh;
+  transition: transform 0.3s ease;
+  transform: translateY(100%);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.bottom-panel.show { transform: translateY(0); }
+
+.bottom-panel .handle {
+  width: 40px; height: 4px;
+  background: #ccc; border-radius: 2px;
+  margin: 10px auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px 12px;
+}
+
+.panel-header h2 { font-size: 16px; font-weight: 600; }
+
+.panel-close {
+  background: none; border: none;
+  color: var(--text-muted);
+  font-size: 20px; cursor: pointer;
+  padding: 4px 8px;
+}
+
+.parking-list {
+  overflow-y: auto;
+  max-height: calc(60vh - 80px);
+  padding: 0 16px 16px;
+  padding-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+/* Parking Card */
+.parking-card {
+  background: var(--bg-card-alt);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.parking-card.recommended {
+  border: 2px solid var(--primary);
+  background: #e8f0fe;
+}
+
+.parking-card:active { background: #e0e4ea; }
+
+.parking-card .card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.parking-card .name {
+  font-size: 15px; font-weight: 600;
+  flex: 1; margin-right: 10px;
+}
+
+.parking-card .distance {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.parking-card .address {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.parking-card .card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.parking-card .availability {
+  font-size: 13px; font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.availability.high { background: rgba(39, 174, 96, 0.12); color: var(--success); }
+.availability.medium { background: rgba(243, 156, 18, 0.12); color: #d68910; }
+.availability.low { background: rgba(231, 76, 60, 0.12); color: var(--danger); }
+
+.nav-btn {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+.nav-btn:active { opacity: 0.8; }
+
+/* Locate Button */
+.locate-btn {
+  position: absolute;
+  bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  right: 16px;
+  z-index: 1000;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  color: var(--text);
+  font-size: 20px; cursor: pointer;
+  box-shadow: var(--shadow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.locate-btn:active { background: #f0f2f5; }
+
+/* Toast */
+.toast {
+  position: absolute;
+  top: 80px; left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  z-index: 2000;
+  background: #333; color: #fff;
+  padding: 10px 20px;
+  border-radius: 20px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.error { border: 1px solid var(--danger); }
+
+/* Loading Overlay */
+.loading-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 1500;
+  background: rgba(255, 255, 255, 0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.loading-overlay.show { display: flex; }
+
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid #ddd;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.loading-overlay p { font-size: 14px; color: var(--text-muted); }
+
+/* Leaflet overrides */
+.leaflet-control-zoom {
+  border: none !important;
+  box-shadow: var(--shadow) !important;
+  margin-right: 12px !important;
+}
+
+.leaflet-control-zoom a {
+  background: #fff !important;
+  color: var(--text) !important;
+  width: 36px !important;
+  height: 36px !important;
+  line-height: 36px !important;
+  font-size: 18px !important;
+}
+
+/* Custom markers */
+.parking-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  font-size: 11px; font-weight: 700;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 2px solid #fff;
+}
+
+.parking-marker.high { background: var(--success); }
+.parking-marker.medium { background: var(--warning); }
+.parking-marker.low { background: var(--danger); }
+
+.dest-marker {
+  color: #e74c3c;
+  font-size: 24px;
+  text-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+/* Popup */
+.leaflet-popup-content-wrapper {
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.leaflet-popup-content { margin: 12px !important; font-size: 13px; }
+
+.popup-name { font-weight: 600; margin-bottom: 4px; }
+.popup-info { color: var(--text-muted); font-size: 12px; margin-bottom: 8px; }
+
+.popup-nav-btn {
+  display: block; width: 100%;
+  background: var(--primary); color: #fff;
+  border: none; border-radius: 8px;
+  padding: 8px; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: center;
+}

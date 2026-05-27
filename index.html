@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ParkNow">
+  <meta name="theme-color" content="#1a73e8">
+  <title>ParkNow - 一鍵找車位</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <!-- Leaflet.js -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Top Search Bar -->
+  <div class="search-bar">
+    <div class="search-input-wrap">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input type="text" id="destInput" placeholder="輸入目的地（地址或地名）" autocomplete="off">
+      <button class="search-clear" id="searchClear">&times;</button>
+    </div>
+    <div class="search-suggestions" id="suggestions"></div>
+  </div>
+
+  <!-- Radius Selector -->
+  <div class="radius-bar">
+    <span class="radius-label">搜尋範圍</span>
+    <div class="radius-options" id="radiusOptions">
+      <button class="radius-btn" data-radius="1000">1km</button>
+      <button class="radius-btn" data-radius="2000">2km</button>
+      <button class="radius-btn active" data-radius="5000">5km</button>
+      <button class="radius-btn" data-radius="10000">10km</button>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-badge" id="statusBadge">定位中...</div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Locate Button -->
+  <button class="locate-btn" id="locateBtn" aria-label="定位">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+    </svg>
+  </button>
+
+  <!-- Find Button -->
+  <div class="find-btn-container">
+    <button class="find-btn" id="findBtn">
+      <span class="icon">P</span>
+      <span>找車位</span>
+    </button>
+  </div>
+
+  <!-- Recommendation Banner -->
+  <div class="recommend-banner" id="recommendBanner">
+    <div class="recommend-top">
+      <div class="recommend-content">
+        <div class="recommend-label">推薦停車場</div>
+        <div class="recommend-name" id="recommendName"></div>
+        <div class="recommend-info" id="recommendInfo"></div>
+      </div>
+      <button class="recommend-nav-btn" id="recommendNavBtn">導航前往</button>
+    </div>
+    <div class="top5-switch" id="top5Switch"></div>
+    <button class="recommend-more" id="recommendMore">展開全部列表</button>
+  </div>
+
+  <!-- Bottom Panel -->
+  <div class="bottom-panel" id="bottomPanel">
+    <div class="handle"></div>
+    <div class="panel-header">
+      <h2 id="resultCount">停車場</h2>
+      <button class="panel-close" id="panelClose">&times;</button>
+    </div>
+    <div class="parking-list" id="parkingList"></div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <p>搜尋停車場中...</p>
+  </div>
+
+  <!-- App Scripts -->
+  <script src="js/location.js"></script>
+  <script src="js/parking-service.js"></script>
+  <script src="js/map-controller.js"></script>
+  <script src="js/navigation.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

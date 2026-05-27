@@ -1,0 +1,158 @@
+@@ ParkNow - 一鍵找車位 PWA
+	版本: Windows Chrome 驗證版 (v6)
+	建立日期: 2026-05-24
+	狀態: Windows Chrome 功能驗證完成, 準備部署 iPhone
+
+	L A. 專案概要
+		目的: 開車到目的地後, 一鍵找到最近有空位的停車場, 直接導航過去
+		使用者痛點: 到達目的地後需切換多個 App 找停車場, 步驟繁瑣
+		解決方案: PWA (Progressive Web App), Safari 加入主畫面, 體驗接近原生 App
+		限制: 無 Mac/Xcode, 僅 Windows 電腦, 必須免費方案
+		總費用: $0
+
+	L B. 技術架構
+		L 前端
+			L HTML + CSS + JavaScript (原生, 無框架)
+			L Leaflet.js + OpenStreetMap 圖磚 (免費地圖)
+			L 瀏覽器 Geolocation API (GPS 定位)
+		L 資料來源
+			L 台北市停車場 API (tcgbusfs.blob.core.windows.net, 免認證, CORS 開放)
+			L 新北市停車場 API (data.ntpc.gov.tw, 免認證, CORS 限制需代理)
+			L OSRM Table API (router.project-osrm.org, 免費開車距離計算)
+			L Nominatim API (地址搜尋/反向地理編碼)
+		L 代理層
+			L PY_server.py (本地開發用, 代理新北市 API 解決 CORS)
+			L Cloudflare Worker (Phase 2, TDX API 全台灣覆蓋)
+		L 導航
+			L Apple Maps URL Scheme: maps://?daddr=LAT,LNG&dirflg=d
+			L Google Maps URL: https://www.google.com/maps/dir/?api=1&destination=LAT,LNG&travelmode=driving
+			L 自動偵測 iOS/Android 選擇對應導航 App
+
+	L C. 專案結構
+		L 根目錄: /mnt/host/d/Morris/under_cook/0524_map_auto_parkinglot/
+		== 主要檔案 ====
+		L index.html - 主頁面 (搜尋列, 半徑選擇, 地圖, 推薦橫幅, 底部列表, 載入動畫)
+		L css/style.css - 樣式 (亮色主題, 行動裝置優先)
+		L manifest.json - PWA 設定 (名稱, 圖示, 主題色)
+		L sw.js - Service Worker (parknow-v6, network-first 策略)
+		L PY_server.py - 開發用伺服器 (靜態檔案 + 新北 API 代理, port 8080)
+		== JS 模組 ====
+		L js/app.js - App 主邏輯 (目的地搜尋, 停車場搜尋, OSRM 排名, Top 5 系統)
+		L js/location.js - GPS 定位模組 (Geolocation API, 反向地理編碼, Haversine 距離)
+		L js/parking-service.js - 停車場搜尋服務 (台北+新北 API, TWD97 座標轉換, 過濾排序)
+		L js/map-controller.js - 地圖控制 (Leaflet.js, 使用者位置, 停車場標記, 目的地標記)
+		L js/navigation.js - 導航模組 (iOS/Android 偵測, Apple Maps/Google Maps)
+		== 其他 ====
+		L icons/icon-192.png - PWA 圖示 192x192
+		L icons/icon-512.png - PWA 圖示 512x512
+		L worker/tdx-proxy.js - Cloudflare Worker 範本 (Phase 2)
+
+	L D. 核心功能流程
+		L1 使用者輸入目的地 (搜尋列, Nominatim 地址搜尋, 建議下拉)
+		L2 選擇目的地後自動搜尋附近停車場
+			L 判斷所在縣市 (反向地理編碼)
+			L 平行呼叫台北市 + 新北市 API
+			L 座標轉換: TWD97 TM2 轉 WGS84 (台灣政府資料格式)
+			L 過濾: 搜尋半徑內 + 空位 > 0
+			L 排序: 直線距離近到遠
+		L3 OSRM 開車距離排名
+			L 取直線距離最近 15 個候選
+			L 呼叫 OSRM Table API 計算實際開車距離/時間
+			L 按開車距離排序, 取 Top 5
+		L4 推薦系統
+			L 預設選 #1 (開車距離最近且有空位)
+			L 推薦橫幅顯示: 名稱, 開車距離, 開車時間, 空位數
+			L Top 5 快速切換按鈕 (#1~#5, 顯示時間和空位)
+			L 點擊切換時地圖飛到該停車場
+		L5 導航前往
+			L 點擊「導航前往」開啟外部地圖 App
+			L iOS: Apple Maps 優先, 備援 Web 版
+			L Android: Google Maps
+
+	L E. UI 元件
+		== 頂部 ====
+		L 搜尋列 (search-bar) - 目的地輸入, 建議下拉, 清除按鈕
+		L 半徑選擇器 (radius-bar) - 1km / 2km / 5km(預設) / 10km
+		L 狀態標籤 (status-badge) - 定位中/已定位/定位失敗
+		== 地圖 ====
+		L 地圖 (Leaflet.js) - OSM 亮色圖磚, zoom 控制
+		L 使用者位置 - 藍色圓點 + 精確度圈
+		L 目的地 - 紅色標記
+		L 停車場標記 - 圓形圖示顯示空位數 (綠>=20 / 黃5-19 / 紅1-4)
+		== 底部 ====
+		L 找車位按鈕 (find-btn) - 綠色圓形大按鈕, 按下時有 pulse 動畫
+		L 推薦橫幅 (recommend-banner) - Top 5 推薦, 導航按鈕, 展開全部
+		L 底部面板 (bottom-panel) - 完整停車場列表, 可上滑展開
+		== 其他 ====
+		L 定位按鈕 (locate-btn) - 右下角, 重新定位
+		L Toast 通知 - 搜尋結果/錯誤訊息
+		L 載入覆蓋層 - 搜尋中/計算路線中
+
+	L F. API 細節
+		== 台北市 ====
+		L 靜態資訊: https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_alldesc.json
+		L 即時空位: https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_allavailable.json
+		L 座標: EntranceCoord.EntrancecoordInfo[0].Xcod/Ycod (WGS84), 備援 tw97x/tw97y (TWD97)
+		L ID 格式: desc 有 "139" 和 "TPE0001", avail 用 "TPE0001"
+		L 空位 -9 表示無資料, 視為 0
+		== 新北市 ====
+		L 靜態資訊: https://data.ntpc.gov.tw/api/datasets/b1464ef0-9c7c-4a6f-abf7-6bdf32847e68/json
+		L 即時空位: https://data.ntpc.gov.tw/api/datasets/e09b35a5-a738-48cc-b0f5-570b67ad9c78/json
+		L CORS 限制: Access-Control-Allow-Origin: https://data.ntpc.gov.tw (需代理)
+		L 座標: 只有 TW97X/TW97Y, 全部需轉換
+		L 分頁: page=0&size=1000, 共約 1512 筆需取 2 頁
+		== OSRM ====
+		L Table API: https://router.project-osrm.org/table/v1/driving/{coords}?sources=0&annotations=duration,distance
+		L 第一個點是目的地, 後面是停車場
+		L 回傳 durations[0] (秒) 和 distances[0] (公尺)
+		== Nominatim ====
+		L 地址搜尋: https://nominatim.openstreetmap.org/search?format=json&q={query}&countrycodes=tw&limit=5
+		L 反向地理編碼: https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}
+
+	L G. 已解決問題記錄
+		L1 TWD97 座標系統 - 台灣政府資料用 TWD97 TM2, 實作完整數學轉換公式到 WGS84
+		L2 CORS 新北市 API - data.ntpc.gov.tw 限制跨域, 建立 PY_server.py 本地代理
+		L3 Service Worker 快取 - 開發階段舊檔案被快取, 改 network-first + 版本號 v1~v6
+		L4 暗色地圖 - 改用標準 OSM 圖磚 tile.openstreetmap.org (亮色)
+		L5 Zoom 控制 - 移除 CSS 隱藏規則, 啟用 zoomControl: true
+		L6 推薦邏輯不準 - 從線性評分改為 OSRM 實際開車距離排名
+		L7 chrome-extension SW 錯誤 - 加入 protocol 檢查過濾非 http 請求
+		L8 availablecar 值 -9 - 台北 API 用 -9 表示無資料, 視為 0 處理
+
+	L H. 目前狀態
+		L Windows Chrome 測試通過
+			L GPS 定位正常 (Chrome DevTools Sensors 模擬)
+			L 地圖正確顯示 (OSM 亮色圖磚)
+			L 搜尋目的地功能正常 (Nominatim)
+			L 停車場搜尋正常 (台北+新北, 雙 API 平行)
+			L OSRM 開車距離排名正常
+			L Top 5 推薦系統正常
+			L 半徑選擇器正常 (1km/2km/5km/10km)
+		L 待處理
+			L iPhone 15 適配與部署
+			L 全台灣覆蓋 (TDX API + Cloudflare Worker)
+			L 停車場收藏功能 (localStorage)
+			L 停車費估算
+
+== 補充 =============================================
+
+	L 開發環境
+		L Windows 電腦 + WSL (Linux)
+		L 啟動方式: python3 PY_server.py (port 8080)
+		L 瀏覽器: http://localhost:8080
+		L 強制刷新: Ctrl+Shift+R (清除 SW 快取)
+
+	L 座標轉換說明
+		TWD97 TM2 (橫麥卡托二度分帶投影) 轉 WGS84:
+		L 中央經線: 121度
+		L 尺度因子 k0: 0.9999
+		L 假東偏移 dx: 250000m
+		L 使用橢球參數: GRS80 (a=6378137, b=6356752.3142)
+		L 先算 footprint latitude, 再用 Bowring 公式反算經緯度
+
+	L PY_server.py 代理架構
+		L 綁定 0.0.0.0:8080 (允許外部連線)
+		L /api/ntpc/desc → 代理到 data.ntpc.gov.tw desc dataset
+		L /api/ntpc/avail → 代理到 data.ntpc.gov.tw avail dataset
+		L 其他路徑 → 靜態檔案伺服 (index.html, JS, CSS)
+		L 回應加入 Access-Control-Allow-Origin: * 解決 CORS

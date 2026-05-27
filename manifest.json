@@ -1,0 +1,22 @@
+{
+  "name": "ParkNow - 一鍵找車位",
+  "short_name": "ParkNow",
+  "description": "快速找到附近有空位的停車場，一鍵導航",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
