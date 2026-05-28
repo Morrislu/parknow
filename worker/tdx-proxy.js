@@ -128,16 +128,27 @@ async function handleTDXParking(env, city, lat, lng, radius) {
       return jsonResponse({ error: `TDX desc API error: ${descRes.status}` }, descRes.status);
     }
 
-    const descData = await descRes.json();
-    const availData = availRes.ok ? await availRes.json() : [];
+    const descRaw = await descRes.json();
+    const availRaw = availRes.ok ? await availRes.json() : [];
+
+    // TDX 回傳可能是陣列或物件，統一處理
+    const descData = Array.isArray(descRaw) ? descRaw : (descRaw.CarParks || descRaw.carParks || []);
+    const availData = Array.isArray(availRaw) ? availRaw : (availRaw.ParkingAvailabilities || availRaw.parkingAvailabilities || []);
 
     // 建立空位 lookup
     const availMap = {};
-    (availData || []).forEach(item => {
-      availMap[item.CarParkID] = {
-        available: item.AvailableSpaces || 0,
-        total: item.TotalSpaces || 0
-      };
+    availData.forEach(item => {
+      // TDX 空位可能在頂層或 Availabilities 子陣列
+      let available = 0, total = 0;
+      if (item.AvailableSpaces != null) {
+        available = item.AvailableSpaces;
+        total = item.TotalSpaces || 0;
+      } else if (item.Availabilities && item.Availabilities.length > 0) {
+        const a = item.Availabilities[0];
+        available = a.AvailableSpaces || 0;
+        total = a.NumberOfSpaces || 0;
+      }
+      availMap[item.CarParkID] = { available, total };
     });
 
     // 過濾並排序
