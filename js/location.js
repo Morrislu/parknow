@@ -95,7 +95,7 @@ const LocationService = {
       '高雄': 'Kaohsiung',
       '基隆': 'Keelung',
       '新竹市': 'Hsinchu',
-      '新竹縣': 'HssinchuCounty',
+      '新竹縣': 'HsinchuCounty',
       '苗栗': 'MiaoliCounty',
       '彰化': 'ChanghuaCounty',
       '南投': 'NantouCounty',

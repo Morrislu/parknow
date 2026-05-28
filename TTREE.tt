@@ -1,7 +1,8 @@
 @@ ParkNow - 一鍵找車位 PWA
-	版本: Windows Chrome 驗證版 (v6)
+	版本: v8 全台灣 23 縣市擴充版
 	建立日期: 2026-05-24
-	狀態: Windows Chrome 功能驗證完成, 準備部署 iPhone
+	最後更新: 2026-05-28
+	狀態: v8 TDX 全台灣停車場擴充完成
 
 	L A. 專案概要
 		目的: 開車到目的地後, 一鍵找到最近有空位的停車場, 直接導航過去
@@ -16,13 +17,17 @@
 			L Leaflet.js + OpenStreetMap 圖磚 (免費地圖)
 			L 瀏覽器 Geolocation API (GPS 定位)
 		L 資料來源
+			== 大台北直連 API (免認證) ====
 			L 台北市停車場 API (tcgbusfs.blob.core.windows.net, 免認證, CORS 開放)
 			L 新北市停車場 API (data.ntpc.gov.tw, 免認證, CORS 限制需代理)
+			== TDX 全台灣 API (需認證) ====
+			L TDX API (tdx.transportdata.tw, OAuth2 認證, 全台灣 23 縣市)
+			== 輔助 API ====
 			L OSRM Table API (router.project-osrm.org, 免費開車距離計算)
 			L Nominatim API (地址搜尋/反向地理編碼)
 		L 代理層
-			L PY_server.py (本地開發用, 代理新北市 API 解決 CORS)
-			L Cloudflare Worker (Phase 2, TDX API 全台灣覆蓋)
+			L PY_server.py (本地開發用, 代理新北市 API + TDX API)
+			L Cloudflare Worker (worker/tdx-proxy.js, 合併 NTPC + TDX 代理)
 		L 導航
 			L Apple Maps URL Scheme: maps://?daddr=LAT,LNG&dirflg=d
 			L Google Maps URL: https://www.google.com/maps/dir/?api=1&destination=LAT,LNG&travelmode=driving
@@ -34,24 +39,32 @@
 		L index.html - 主頁面 (搜尋列, 半徑選擇, 地圖, 推薦橫幅, 底部列表, 載入動畫)
 		L css/style.css - 樣式 (亮色主題, 行動裝置優先)
 		L manifest.json - PWA 設定 (名稱, 圖示, 主題色)
-		L sw.js - Service Worker (parknow-v6, network-first 策略)
-		L PY_server.py - 開發用伺服器 (靜態檔案 + 新北 API 代理, port 8080)
+		L sw.js - Service Worker (parknow-v8, network-first 策略)
+		L PY_server.py - 開發用伺服器 (靜態檔案 + 新北 API 代理 + TDX 代理, port 8080)
 		== JS 模組 ====
 		L js/app.js - App 主邏輯 (目的地搜尋, 停車場搜尋, OSRM 排名, Top 5 系統)
-		L js/location.js - GPS 定位模組 (Geolocation API, 反向地理編碼, Haversine 距離)
-		L js/parking-service.js - 停車場搜尋服務 (台北+新北 API, TWD97 座標轉換, 過濾排序)
+		L js/location.js - GPS 定位模組 (Geolocation API, 反向地理編碼, Haversine 距離, 23 縣市代碼對應)
+		L js/parking-service.js - 停車場搜尋服務 (台北+新北直連 + TDX 全台灣, 去重合併)
 		L js/map-controller.js - 地圖控制 (Leaflet.js, 使用者位置, 停車場標記, 目的地標記)
 		L js/navigation.js - 導航模組 (iOS/Android 偵測, Apple Maps/Google Maps)
+		== Worker ====
+		L worker/tdx-proxy.js - Cloudflare Worker (合併 NTPC 代理 + TDX 全台灣代理)
 		== 其他 ====
 		L icons/icon-192.png - PWA 圖示 192x192
 		L icons/icon-512.png - PWA 圖示 512x512
-		L worker/tdx-proxy.js - Cloudflare Worker 範本 (Phase 2)
 
 	L D. 核心功能流程
 		L1 使用者輸入目的地 (搜尋列, Nominatim 地址搜尋, 建議下拉)
 		L2 選擇目的地後自動搜尋附近停車場
 			L 判斷所在縣市 (反向地理編碼)
-			L 平行呼叫台北市 + 新北市 API
+			== 大台北地區 ====
+			L 平行呼叫台北市 + 新北市直連 API (快速, 免認證)
+			L 選擇性平行呼叫 TDX API 補充資料
+			L 去重合併 (id 為主鍵, 直連優先)
+			== 其他縣市 ====
+			L 呼叫 TDX API (透過 Cloudflare Worker 代理)
+			L TDX 未設定時顯示友善提示
+			== 共通 ====
 			L 座標轉換: TWD97 TM2 轉 WGS84 (台灣政府資料格式)
 			L 過濾: 搜尋半徑內 + 空位 > 0
 			L 排序: 直線距離近到遠
@@ -101,6 +114,12 @@
 		L CORS 限制: Access-Control-Allow-Origin: https://data.ntpc.gov.tw (需代理)
 		L 座標: 只有 TW97X/TW97Y, 全部需轉換
 		L 分頁: page=0&size=1000, 共約 1512 筆需取 2 頁
+		== TDX 全台灣 ====
+		L 認證: OAuth2 client_credentials, token 快取至到期前 60 秒
+		L 靜態資料: /Parking/OffStreet/CarPark/City/{City}?$format=JSON
+		L 即時空位: /Parking/OffStreet/ParkingAvailability/City/{City}?$format=JSON
+		L 座標: CarParkPosition.PositionLat / PositionLon (WGS84, 免轉換)
+		L 23 縣市代碼: Taipei, NewTaipei, Taoyuan, Taichung, Tainan, Kaohsiung, Keelung, Hsinchu, HsinchuCounty, MiaoliCounty, ChanghuaCounty, NantouCounty, YunlinCounty, Chiayi, ChiayiCounty, PingtungCounty, YilanCounty, HualienCounty, TaitungCounty, PenghuCounty, KinmenCounty, LienchiangCounty
 		== OSRM ====
 		L Table API: https://router.project-osrm.org/table/v1/driving/{coords}?sources=0&annotations=duration,distance
 		L 第一個點是目的地, 後面是停車場
@@ -112,14 +131,29 @@
 	L G. 已解決問題記錄
 		L1 TWD97 座標系統 - 台灣政府資料用 TWD97 TM2, 實作完整數學轉換公式到 WGS84
 		L2 CORS 新北市 API - data.ntpc.gov.tw 限制跨域, 建立 PY_server.py 本地代理
-		L3 Service Worker 快取 - 開發階段舊檔案被快取, 改 network-first + 版本號 v1~v6
+		L3 Service Worker 快取 - 開發階段舊檔案被快取, 改 network-first + 版本號 v1~v8
 		L4 暗色地圖 - 改用標準 OSM 圖磚 tile.openstreetmap.org (亮色)
 		L5 Zoom 控制 - 移除 CSS 隱藏規則, 啟用 zoomControl: true
 		L6 推薦邏輯不準 - 從線性評分改為 OSRM 實際開車距離排名
 		L7 chrome-extension SW 錯誤 - 加入 protocol 檢查過濾非 http 請求
 		L8 availablecar 值 -9 - 台北 API 用 -9 表示無資料, 視為 0 處理
+		L9 新竹縣代碼 typo - HssinchuCounty 修正為 HsinchuCounty
+		L10 Worker 合併 - ntpc-proxy.js + tdx-proxy.js 合併為單一 Worker
+		L11 Port 佔用 - OSError: Address in use, 用 fuser -k 8080/tcp 強制釋放 port
 
-	L H. 目前狀態
+	L H. 版本歷史
+		== v1~v6 ====
+		L 台北+新北直連 API, TWD97 座標轉換, OSRM 排名, Top 5 推薦
+		== v7 ====
+		L TDX Worker 範本建立, 架構規劃
+		== v8 (目前) ====
+		L 全台灣 23 縣市 TDX API 擴充
+		L Worker 合併 (NTPC + TDX 統一代理)
+		L parking-service.js 支援 TDX 搜尋 + 去重
+		L PY_server.py 加入 TDX 本地代理路由
+		L location.js 新竹縣代碼 typo 修正
+
+	L I. 目前狀態
 		L Windows Chrome 測試通過
 			L GPS 定位正常 (Chrome DevTools Sensors 模擬)
 			L 地圖正確顯示 (OSM 亮色圖磚)
@@ -128,11 +162,23 @@
 			L OSRM 開車距離排名正常
 			L Top 5 推薦系統正常
 			L 半徑選擇器正常 (1km/2km/5km/10km)
+		L v8 新增功能
+			L TDX API 全台灣 23 縣市停車場搜尋
+			L Cloudflare Worker 合併代理 (NTPC + TDX)
+			L 大台北去重邏輯 (直連 + TDX 不重複)
+			L TDX 未設定時友善降級 (僅台北+新北可用)
 		L 待處理
 			L iPhone 15 適配與部署
-			L 全台灣覆蓋 (TDX API + Cloudflare Worker)
 			L 停車場收藏功能 (localStorage)
 			L 停車費估算
+
+	L J. TDX 啟用步驟
+		L1 註冊 TDX 帳號: https://tdx.transportdata.tw/register (免費)
+		L2 取得 client_id + client_secret
+		L3 建立 Cloudflare Worker + 設定環境變數 (TDX_CLIENT_ID, TDX_CLIENT_SECRET)
+		L4 部署 worker/tdx-proxy.js 至 Cloudflare
+		L5 確認 parking-service.js 中 CF_WORKER_URL 指向 Worker URL
+		L 未設定 TDX 時: App 仍正常使用台北+新北, 其他城市回傳空結果
 
 == 補充 =============================================
 
@@ -141,6 +187,7 @@
 		L 啟動方式: python3 PY_server.py (port 8080)
 		L 瀏覽器: http://localhost:8080
 		L 強制刷新: Ctrl+Shift+R (清除 SW 快取)
+		L TDX 本地測試: TDX_CLIENT_ID=xxx TDX_CLIENT_SECRET=xxx python3 PY_server.py
 
 	L 座標轉換說明
 		TWD97 TM2 (橫麥卡托二度分帶投影) 轉 WGS84:
@@ -154,5 +201,13 @@
 		L 綁定 0.0.0.0:8080 (允許外部連線)
 		L /api/ntpc/desc → 代理到 data.ntpc.gov.tw desc dataset
 		L /api/ntpc/avail → 代理到 data.ntpc.gov.tw avail dataset
+		L /api/parking/{City} → 代理到 TDX API (需 TDX_CLIENT_ID, TDX_CLIENT_SECRET 環境變數)
 		L 其他路徑 → 靜態檔案伺服 (index.html, JS, CSS)
 		L 回應加入 Access-Control-Allow-Origin: * 解決 CORS
+
+	L Cloudflare Worker 代理架構 (worker/tdx-proxy.js)
+		L /api/ntpc/desc → 代理新北市停車場靜態資訊
+		L /api/ntpc/avail → 代理新北市即時空位
+		L /api/parking/{City} → TDX OAuth2 認證 + 取停車場資料 + 過濾排序
+		L 統一 CORS headers
+		L TDX token 快取 (到期前 60 秒刷新)
