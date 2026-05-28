@@ -1,27 +1,28 @@
 /**
  * 停車場搜尋服務
  * 串接台北市 + 新北市即時資料 API（免認證）
- * 其他城市可透過 TDX API（Cloudflare Worker 代理）
+ * 其他城市透過 TDX API（Cloudflare Worker 代理）
  */
 const ParkingService = {
-  // TDX API proxy URL (Cloudflare Worker) - Phase 2 再啟用
-  TDX_PROXY_URL: '',
-
   // 台北市直連 API（免認證）
   TAIPEI_DESC_URL: 'https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_alldesc.json',
   TAIPEI_AVAIL_URL: 'https://tcgbusfs.blob.core.windows.net/blobtcmsv/TCMSV_allavailable.json',
 
   // 新北市 API（透過代理，因 data.ntpc.gov.tw 不允許跨域）
-  // 自動判斷：localhost 用本地代理，部署後用 Cloudflare Worker
-  NTPC_PROXY_BASE: '',  // 初始化時設定
   NTPC_DESC_URL: '',
   NTPC_AVAIL_URL: '',
 
+  // TDX API URL（透過合併後的 Worker 代理）
+  TDX_API_URL: '',
+
   // Cloudflare Worker 代理 URL（部署後使用）
-  CF_WORKER_URL: 'https://parknow-proxy.morrislu.workers.dev',
+  CF_WORKER_URL: 'https://parknow.kiwi-lu1130.workers.dev',
 
   // 搜尋半徑（公尺）
   SEARCH_RADIUS: 5000,
+
+  // 大台北直連城市（這些城市有獨立免認證 API）
+  METRO_CITIES: ['Taipei', 'NewTaipei'],
 
   /**
    * 初始化：根據環境自動設定 API URL
@@ -31,45 +32,55 @@ const ParkingService = {
     if (isLocal) {
       this.NTPC_DESC_URL = '/api/ntpc/desc';
       this.NTPC_AVAIL_URL = '/api/ntpc/avail';
+      this.TDX_API_URL = '/api/parking';
     } else {
       this.NTPC_DESC_URL = this.CF_WORKER_URL + '/api/ntpc/desc';
       this.NTPC_AVAIL_URL = this.CF_WORKER_URL + '/api/ntpc/avail';
+      this.TDX_API_URL = this.CF_WORKER_URL + '/api/parking';
     }
-    console.log('[DEBUG] ParkingService 環境:', isLocal ? '本地' : '部署', '| NTPC URL:', this.NTPC_DESC_URL);
+    console.log('[ParkingService] 環境:', isLocal ? '本地' : '部署',
+      '| NTPC:', this.NTPC_DESC_URL, '| TDX:', this.TDX_API_URL);
   },
 
   /**
-   * 搜尋附近停車場（台北+新北同時搜尋）
+   * 搜尋附近停車場（全台灣 23 縣市）
+   * - 台北/新北：直連 API（快速、免認證）+ 平行 TDX 去重
+   * - 其他城市：TDX API
    */
   async searchNearby(lat, lng, city) {
-    if (city === 'Taipei' || city === 'NewTaipei') {
-      // 雙北地區：同時搜尋台北市 + 新北市
+    const isMetro = this.METRO_CITIES.includes(city);
+
+    if (isMetro) {
+      // 大台北：直連 API 為主
       const [taipeiResults, ntpcResults] = await Promise.all([
         this.searchTaipei(lat, lng).catch(() => []),
         this.searchNTPC(lat, lng).catch(() => [])
       ]);
 
-      console.log('[DEBUG] 台北結果:', taipeiResults.length, ', 新北結果:', ntpcResults.length);
+      let merged = [...taipeiResults, ...ntpcResults];
 
-      // 合併、去重、排序
-      const merged = [...taipeiResults, ...ntpcResults];
+      // 如果 TDX 可用，也平行搜尋 TDX 補充資料
+      if (this.TDX_API_URL) {
+        const tdxResults = await this.searchTDX(lat, lng, city).catch(() => []);
+        if (tdxResults.length > 0) {
+          merged = this._dedup([...merged, ...tdxResults]);
+        }
+      }
+
+      console.log('[ParkingService] 大台北合併結果:', merged.length);
       merged.sort((a, b) => a.distance - b.distance);
       return merged.slice(0, 30);
     }
 
-    // 其他城市嘗試 TDX API
-    if (this.TDX_PROXY_URL) {
-      return this.searchTDX(lat, lng, city);
+    // 非大台北：TDX API
+    if (this.TDX_API_URL) {
+      const tdxResults = await this.searchTDX(lat, lng, city);
+      return tdxResults;
     }
 
-    // 沒有設定 TDX proxy 時，使用雙北 API 作為 demo
-    const [taipeiResults, ntpcResults] = await Promise.all([
-      this.searchTaipei(lat, lng).catch(() => []),
-      this.searchNTPC(lat, lng).catch(() => [])
-    ]);
-    const merged = [...taipeiResults, ...ntpcResults];
-    merged.sort((a, b) => a.distance - b.distance);
-    return merged.slice(0, 30);
+    // TDX 未設定
+    console.warn('[ParkingService] 非大台北地區且 TDX 未設定，無法搜尋');
+    return [];
   },
 
   /**
@@ -139,6 +150,38 @@ const ParkingService = {
   },
 
   /**
+   * TDX API 搜尋（透過 Cloudflare Worker 代理）
+   * Worker 端處理認證、過濾、排序，回傳統一格式
+   */
+  async searchTDX(lat, lng, city) {
+    try {
+      const url = `${this.TDX_API_URL}/${city}?lat=${lat}&lng=${lng}&radius=${this.SEARCH_RADIUS}`;
+      console.log('[DEBUG] searchTDX:', url);
+
+      const response = await fetch(url);
+
+      if (response.status === 503) {
+        console.warn('[ParkingService] TDX credentials 未設定');
+        return [];
+      }
+      if (!response.ok) {
+        throw new Error(`TDX API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.error) {
+        console.warn('[ParkingService] TDX error:', data.error);
+        return [];
+      }
+
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.error('[ParkingService] TDX API 錯誤:', error);
+      return [];
+    }
+  },
+
+  /**
    * 統一過濾邏輯：座標轉換 → 距離過濾 → 空位過濾
    * @param {Array} parks - 停車場陣列
    * @param {Object} availMap - id → 空位數
@@ -202,6 +245,22 @@ const ParkingService = {
   },
 
   /**
+   * 去重：以 id 為主鍵，直連 API 優先於 TDX
+   * 避免大台北地區同時搜尋直連 + TDX 時出現重複
+   */
+  _dedup(parks) {
+    const seen = new Map();
+    for (const park of parks) {
+      const key = park.id || `${park.lat}_${park.lng}`;
+      if (!seen.has(key)) {
+        seen.set(key, park);
+      }
+      // 已存在則跳過（先加入的直連資料優先）
+    }
+    return Array.from(seen.values());
+  },
+
+  /**
    * TWD97 (TM2) 轉 WGS84 經緯度
    */
   twd97ToWgs84(x, y) {
@@ -240,20 +299,6 @@ const ParkingService = {
       lat: lat * 180 / Math.PI,
       lng: lng * 180 / Math.PI
     };
-  },
-
-  /**
-   * TDX API 搜尋（需 Cloudflare Worker 代理）- Phase 2
-   */
-  async searchTDX(lat, lng, city) {
-    try {
-      const response = await fetch(`${this.TDX_PROXY_URL}/parking/${city}?lat=${lat}&lng=${lng}&radius=${this.SEARCH_RADIUS}`);
-      if (!response.ok) throw new Error('TDX API 錯誤');
-      return response.json();
-    } catch (error) {
-      console.error('TDX API 錯誤:', error);
-      return [];
-    }
   },
 
   getAvailabilityLevel(available) {
