@@ -37,7 +37,7 @@ body {
 /* Search Bar */
 .search-bar {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top, 0px));
+  top: calc(52px + env(safe-area-inset-top, 0px));
   left: 12px; right: 12px;
   z-index: 1000;
 }
@@ -101,7 +101,7 @@ body {
 /* Radius Bar */
 .radius-bar {
   position: absolute;
-  top: calc(62px + env(safe-area-inset-top, 0px));
+  top: calc(12px + env(safe-area-inset-top, 0px));
   left: 12px;
   z-index: 1000;
   display: flex;
