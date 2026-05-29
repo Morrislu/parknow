@@ -115,6 +115,16 @@ class ParkNowHandler(SimpleHTTPRequestHandler):
             self._proxy_tdx(m.group(1), parsed.query)
             return
 
+        # Google Places Autocomplete
+        if parsed.path == '/api/places/autocomplete':
+            self._proxy_places_autocomplete(parsed.query)
+            return
+
+        # Google Places Details
+        if parsed.path == '/api/places/details':
+            self._proxy_places_details(parsed.query)
+            return
+
         # 其他請求走正常靜態檔案
         super().do_GET()
 
@@ -233,6 +243,74 @@ class ParkNowHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json_error(500, str(e))
 
+    def _proxy_places_autocomplete(self, query_string):
+        """代理 Google Places Autocomplete API"""
+        api_key = os.environ.get('GOOGLE_PLACES_API_KEY', '')
+        if not api_key:
+            self._send_json_error(503, 'GOOGLE_PLACES_API_KEY not configured')
+            return
+        try:
+            params = parse_qs(query_string)
+            input_text = params.get('input', [''])[0]
+            if not input_text:
+                self._send_json_error(400, 'Missing input parameter')
+                return
+
+            url = (
+                'https://maps.googleapis.com/maps/api/place/autocomplete/json?'
+                + urlencode({
+                    'input': input_text,
+                    'key': api_key,
+                    'language': 'zh-TW',
+                    'components': 'country:tw'
+                })
+            )
+            req = Request(url, headers={'User-Agent': 'ParkNow-Proxy/1.0'})
+            with urlopen(req, timeout=10) as resp:
+                data = resp.read()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self._send_json_error(502, str(e))
+
+    def _proxy_places_details(self, query_string):
+        """代理 Google Places Details API"""
+        api_key = os.environ.get('GOOGLE_PLACES_API_KEY', '')
+        if not api_key:
+            self._send_json_error(503, 'GOOGLE_PLACES_API_KEY not configured')
+            return
+        try:
+            params = parse_qs(query_string)
+            place_id = params.get('place_id', [''])[0]
+            if not place_id:
+                self._send_json_error(400, 'Missing place_id parameter')
+                return
+
+            url = (
+                'https://maps.googleapis.com/maps/api/place/details/json?'
+                + urlencode({
+                    'place_id': place_id,
+                    'key': api_key,
+                    'fields': 'geometry,name,formatted_address',
+                    'language': 'zh-TW'
+                })
+            )
+            req = Request(url, headers={'User-Agent': 'ParkNow-Proxy/1.0'})
+            with urlopen(req, timeout=10) as resp:
+                data = resp.read()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:
+            self._send_json_error(502, str(e))
+
     def _send_json_error(self, status, message):
         """送出 JSON 錯誤回應"""
         self.send_response(status)
@@ -273,6 +351,10 @@ def show_help():
     print("  3. 代理 TDX API (全台灣停車場)")
     print("     /api/parking/{City} → TDX 停車場搜尋")
     print("     需設定環境變數: TDX_CLIENT_ID, TDX_CLIENT_SECRET")
+    print("  4. 代理 Google Places API (地址搜尋)")
+    print("     /api/places/autocomplete → 地址自動完成")
+    print("     /api/places/details → 地點詳細資訊")
+    print("     需設定環境變數: GOOGLE_PLACES_API_KEY")
 
 
 def main():
@@ -287,14 +369,17 @@ def main():
     # 切換到專案目錄
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    # 檢查 TDX 環境變數
+    # 檢查環境變數
     tdx_id = os.environ.get('TDX_CLIENT_ID', '')
     tdx_ok = bool(tdx_id and os.environ.get('TDX_CLIENT_SECRET', ''))
+    places_key = os.environ.get('GOOGLE_PLACES_API_KEY', '')
+    places_ok = bool(places_key)
 
     server = HTTPServer(('0.0.0.0', args.port), ParkNowHandler)
     print(f'ParkNow 伺服器已啟動')
     print(f'  http://localhost:{args.port}')
     print(f'  TDX API: {"已設定 (" + tdx_id[:8] + "...)" if tdx_ok else "未設定 (僅台北+新北)"}')
+    print(f'  Google Places API: {"已設定" if places_ok else "未設定 (地址搜尋不可用)"}')
     print(f'  按 Ctrl+C 停止')
     print()
 

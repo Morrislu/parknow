@@ -9,10 +9,16 @@ const App = {
   top5: [],                 // 開車距離最近的 Top 5
   currentPick: 0,           // 目前選中的 Top 5 index (0-4)
   searchTimer: null,
+  placesBaseURL: '',        // Google Places API proxy base URL
 
   async init() {
     ParkingService.init();
     MapController.init('map');
+
+    // 偵測環境，設定 Google Places proxy URL
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+    this.placesBaseURL = isLocal ? '' : ParkingService.CF_WORKER_URL;
+
     this.bindEvents();
     this.registerSW();
     this.locateUser();
@@ -77,17 +83,20 @@ const App = {
 
   async searchAddress(query) {
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=tw&limit=5&accept-language=zh-TW`;
-      const resp = await fetch(url, { headers: { 'User-Agent': 'ParkNow-PWA/1.0' } });
-      const results = await resp.json();
+      const url = `${this.placesBaseURL}/api/places/autocomplete?input=${encodeURIComponent(query)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
 
-      if (results.length === 0) { this.hideSuggestions(); return; }
+      if (!data.predictions || data.predictions.length === 0) {
+        this.hideSuggestions();
+        return;
+      }
 
       const sugDiv = document.getElementById('suggestions');
-      sugDiv.innerHTML = results.map((r) => {
-        const name = r.display_name.split(',')[0];
-        const addr = r.display_name.split(',').slice(1, 3).join(',');
-        return `<div class="suggestion-item" data-lat="${r.lat}" data-lng="${r.lon}" data-name="${name}">
+      sugDiv.innerHTML = data.predictions.map((p) => {
+        const name = p.structured_formatting?.main_text || p.description.split(',')[0];
+        const addr = p.structured_formatting?.secondary_text || p.description;
+        return `<div class="suggestion-item" data-place-id="${p.place_id}" data-name="${name}">
           <div class="suggestion-name">${name}</div>
           <div class="suggestion-addr">${addr}</div>
         </div>`;
@@ -95,16 +104,27 @@ const App = {
       sugDiv.classList.add('show');
 
       sugDiv.querySelectorAll('.suggestion-item').forEach(item => {
-        item.addEventListener('click', () => {
-          this.selectDestination(
-            parseFloat(item.dataset.lat),
-            parseFloat(item.dataset.lng),
-            item.dataset.name
-          );
-        });
+        item.addEventListener('click', () => this.onSuggestionClick(item));
       });
     } catch (e) {
       console.error('地址搜尋錯誤:', e);
+    }
+  },
+
+  async onSuggestionClick(item) {
+    const placeId = item.dataset.placeId;
+    const name = item.dataset.name;
+    try {
+      const url = `${this.placesBaseURL}/api/places/details?place_id=${encodeURIComponent(placeId)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+
+      if (data.result && data.result.geometry) {
+        const loc = data.result.geometry.location;
+        this.selectDestination(loc.lat, loc.lng, data.result.name || name);
+      }
+    } catch (e) {
+      console.error('取得地點詳情錯誤:', e);
     }
   },
 

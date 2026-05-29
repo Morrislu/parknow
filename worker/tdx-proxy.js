@@ -6,10 +6,13 @@
  *   /api/ntpc/desc  → 代理新北市停車場靜態資訊
  *   /api/ntpc/avail → 代理新北市即時空位
  *   /api/parking/{City}?lat=&lng=&radius= → TDX 停車場搜尋
+ *   /api/places/autocomplete?input=      → Google Places Autocomplete
+ *   /api/places/details?place_id=        → Google Places Details
  *
  * 環境變數（TDX 功能需要）：
  *   TDX_CLIENT_ID     - TDX 平台 client_id
  *   TDX_CLIENT_SECRET  - TDX 平台 client_secret
+ *   GOOGLE_PLACES_API_KEY - Google Places API key (地址搜尋)
  *
  * 部署方式：
  * 1. https://dash.cloudflare.com/ → Workers & Pages
@@ -62,6 +65,16 @@ export default {
         return jsonResponse({ error: 'TDX credentials not configured' }, 503);
       }
       return handleTDXParking(env, city, lat, lng, radius);
+    }
+
+    // ── Google Places Autocomplete ──
+    if (url.pathname === '/api/places/autocomplete') {
+      return handlePlacesAutocomplete(env, url.searchParams);
+    }
+
+    // ── Google Places Details ──
+    if (url.pathname === '/api/places/details') {
+      return handlePlacesDetails(env, url.searchParams);
     }
 
     return new Response('ParkNow Proxy - OK', {
@@ -183,6 +196,54 @@ async function handleTDXParking(env, city, lat, lng, radius) {
     return jsonResponse(results.slice(0, 30));
   } catch (error) {
     return jsonResponse({ error: error.message }, 500);
+  }
+}
+
+// ── Google Places Autocomplete ──
+async function handlePlacesAutocomplete(env, params) {
+  if (!env.GOOGLE_PLACES_API_KEY) {
+    return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured' }, 503);
+  }
+  const input = params.get('input');
+  if (!input) {
+    return jsonResponse({ error: 'Missing input parameter' }, 400);
+  }
+  try {
+    const qs = new URLSearchParams({
+      input,
+      key: env.GOOGLE_PLACES_API_KEY,
+      language: 'zh-TW',
+      components: 'country:tw'
+    });
+    const resp = await fetch(`https://maps.googleapis.com/maps/api/place/autocomplete/json?${qs}`);
+    const data = await resp.json();
+    return jsonResponse(data);
+  } catch (error) {
+    return jsonResponse({ error: error.message }, 502);
+  }
+}
+
+// ── Google Places Details ──
+async function handlePlacesDetails(env, params) {
+  if (!env.GOOGLE_PLACES_API_KEY) {
+    return jsonResponse({ error: 'GOOGLE_PLACES_API_KEY not configured' }, 503);
+  }
+  const placeId = params.get('place_id');
+  if (!placeId) {
+    return jsonResponse({ error: 'Missing place_id parameter' }, 400);
+  }
+  try {
+    const qs = new URLSearchParams({
+      place_id: placeId,
+      key: env.GOOGLE_PLACES_API_KEY,
+      fields: 'geometry,name,formatted_address',
+      language: 'zh-TW'
+    });
+    const resp = await fetch(`https://maps.googleapis.com/maps/api/place/details/json?${qs}`);
+    const data = await resp.json();
+    return jsonResponse(data);
+  } catch (error) {
+    return jsonResponse({ error: error.message }, 502);
   }
 }
 

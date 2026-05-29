@@ -1,4 +1,4 @@
-const CACHE_NAME = 'parknow-v8';
+const CACHE_NAME = 'parknow-v9';
 const STATIC_ASSETS = [
   './',
   './index.html',
