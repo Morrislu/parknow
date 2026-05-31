@@ -9,15 +9,16 @@ const App = {
   top5: [],                 // 開車距離最近的 Top 5
   currentPick: 0,           // 目前選中的 Top 5 index (0-4)
   searchTimer: null,
-  placesBaseURL: '',        // Google Places API proxy base URL
+  placesBaseURL: '',        // Google Places API proxy base URL (localhost only)
+  isLocal: false,
+  // Google Places API key（部署版直接從瀏覽器呼叫，由網站限制保護）
+  GOOGLE_PLACES_KEY: 'AIzaSyDmi61a6CcZvl6pBLb9OpCboh0tFcHsR4E',
 
   async init() {
     ParkingService.init();
     MapController.init('map');
 
-    // 偵測環境，設定 Google Places proxy URL
-    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    this.placesBaseURL = isLocal ? '' : ParkingService.CF_WORKER_URL;
+    this.isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 
     this.bindEvents();
     this.registerSW();
@@ -83,24 +84,53 @@ const App = {
 
   async searchAddress(query) {
     try {
-      const url = `${this.placesBaseURL}/api/places/autocomplete?input=${encodeURIComponent(query)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+      let data;
+      if (this.isLocal) {
+        // localhost：透過 Python server proxy
+        const resp = await fetch(`/api/places/autocomplete?input=${encodeURIComponent(query)}`);
+        data = await resp.json();
+      } else {
+        // 部署版：瀏覽器直接呼叫 Google Places API（帶正確 Referer）
+        const resp = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': this.GOOGLE_PLACES_KEY
+          },
+          body: JSON.stringify({
+            input: query,
+            includedRegionCodes: ['tw'],
+            languageCode: 'zh-TW'
+          })
+        });
+        data = await resp.json();
+      }
 
-      if (!data.predictions || data.predictions.length === 0) {
+      if (data.error || data.error_message) {
+        console.error('Places API 錯誤:', data.error || data.error_message);
+        this.showToast('地址搜尋服務異常', true);
+        return;
+      }
+
+      const suggestions = data.suggestions || [];
+      if (suggestions.length === 0) {
         this.hideSuggestions();
         return;
       }
 
       const sugDiv = document.getElementById('suggestions');
-      sugDiv.innerHTML = data.predictions.map((p) => {
-        const name = p.structured_formatting?.main_text || p.description.split(',')[0];
-        const addr = p.structured_formatting?.secondary_text || p.description;
-        return `<div class="suggestion-item" data-place-id="${p.place_id}" data-name="${name}">
-          <div class="suggestion-name">${name}</div>
-          <div class="suggestion-addr">${addr}</div>
-        </div>`;
-      }).join('');
+      sugDiv.innerHTML = suggestions
+        .filter(s => s.placePrediction)
+        .map((s) => {
+          const p = s.placePrediction;
+          const name = p.structuredFormat?.mainText?.text || p.text?.text || '';
+          const addr = p.structuredFormat?.secondaryText?.text || '';
+          const placeId = p.placeId || '';
+          return `<div class="suggestion-item" data-place-id="${placeId}" data-name="${name}">
+            <div class="suggestion-name">${name}</div>
+            <div class="suggestion-addr">${addr}</div>
+          </div>`;
+        }).join('');
       sugDiv.classList.add('show');
 
       sugDiv.querySelectorAll('.suggestion-item').forEach(item => {
@@ -115,13 +145,22 @@ const App = {
     const placeId = item.dataset.placeId;
     const name = item.dataset.name;
     try {
-      const url = `${this.placesBaseURL}/api/places/details?place_id=${encodeURIComponent(placeId)}`;
-      const resp = await fetch(url);
-      const data = await resp.json();
+      let data;
+      if (this.isLocal) {
+        const resp = await fetch(`/api/places/details?place_id=${encodeURIComponent(placeId)}`);
+        data = await resp.json();
+      } else {
+        const resp = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+          headers: {
+            'X-Goog-Api-Key': this.GOOGLE_PLACES_KEY,
+            'X-Goog-FieldMask': 'displayName,formattedAddress,location'
+          }
+        });
+        data = await resp.json();
+      }
 
-      if (data.result && data.result.geometry) {
-        const loc = data.result.geometry.location;
-        this.selectDestination(loc.lat, loc.lng, data.result.name || name);
+      if (data.location) {
+        this.selectDestination(data.location.latitude, data.location.longitude, data.displayName?.text || name);
       }
     } catch (e) {
       console.error('取得地點詳情錯誤:', e);
