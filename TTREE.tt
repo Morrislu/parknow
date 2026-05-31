@@ -1,8 +1,8 @@
 @@ ParkNow - 一鍵找車位 PWA
-	版本: v8 全台灣 23 縣市擴充版
+	版本: v9.1 Google Places API 直連修正版
 	建立日期: 2026-05-24
-	最後更新: 2026-05-28
-	狀態: v8 TDX 全台灣停車場擴充完成
+	最後更新: 2026-05-31
+	狀態: v9.1 部署版 Google Places API 改為瀏覽器直接呼叫
 
 	L A. 專案概要
 		目的: 開車到目的地後, 一鍵找到最近有空位的停車場, 直接導航過去
@@ -23,11 +23,14 @@
 			== TDX 全台灣 API (需認證) ====
 			L TDX API (tdx.transportdata.tw, OAuth2 認證, 全台灣 23 縣市)
 			== 輔助 API ====
+			L Google Places API (地址搜尋, 需 API Key)
+				L localhost: 透過 PY_server.py proxy 呼叫 (key 在 .env)
+				L 部署版: 瀏覽器直接呼叫 Google API (key 在 app.js, 由網站限制保護)
 			L OSRM Table API (router.project-osrm.org, 免費開車距離計算)
-			L Nominatim API (地址搜尋/反向地理編碼)
+			L Nominatim API (反向地理編碼, 免費)
 		L 代理層
-			L PY_server.py (本地開發用, 代理新北市 API + TDX API)
-			L Cloudflare Worker (worker/tdx-proxy.js, 合併 NTPC + TDX 代理)
+			L PY_server.py (本地開發用, 代理新北市 API + TDX API + Google Places API)
+			L Cloudflare Worker (worker/tdx-proxy.js, 代理 NTPC + TDX, Google Places 不走 Worker)
 		L 導航
 			L Apple Maps URL Scheme: maps://?daddr=LAT,LNG&dirflg=d
 			L Google Maps URL: https://www.google.com/maps/dir/?api=1&destination=LAT,LNG&travelmode=driving
@@ -39,22 +42,31 @@
 		L index.html - 主頁面 (搜尋列, 半徑選擇, 地圖, 推薦橫幅, 底部列表, 載入動畫)
 		L css/style.css - 樣式 (亮色主題, 行動裝置優先)
 		L manifest.json - PWA 設定 (名稱, 圖示, 主題色)
-		L sw.js - Service Worker (parknow-v8, network-first 策略)
-		L PY_server.py - 開發用伺服器 (靜態檔案 + 新北 API 代理 + TDX 代理, port 8080)
+		L sw.js - Service Worker (parknow-v9, network-first 策略)
+		L PY_server.py - 開發用伺服器 (靜態檔案 + 新北 API 代理 + TDX 代理 + Google Places 代理, port 8080)
 		== JS 模組 ====
-		L js/app.js - App 主邏輯 (目的地搜尋, 停車場搜尋, OSRM 排名, Top 5 系統)
+		L js/app.js - App 主邏輯 (Google Places 目的地搜尋, 停車場搜尋, OSRM 排名, Top 5 系統)
 		L js/location.js - GPS 定位模組 (Geolocation API, 反向地理編碼, Haversine 距離, 23 縣市代碼對應)
 		L js/parking-service.js - 停車場搜尋服務 (台北+新北直連 + TDX 全台灣, 去重合併)
 		L js/map-controller.js - 地圖控制 (Leaflet.js, 使用者位置, 停車場標記, 目的地標記)
 		L js/navigation.js - 導航模組 (iOS/Android 偵測, Apple Maps/Google Maps)
 		== Worker ====
-		L worker/tdx-proxy.js - Cloudflare Worker (合併 NTPC 代理 + TDX 全台灣代理)
+		L worker/tdx-proxy.js - Cloudflare Worker (合併 NTPC + TDX + Google Places 代理)
 		== 其他 ====
 		L icons/icon-192.png - PWA 圖示 192x192
 		L icons/icon-512.png - PWA 圖示 512x512
 
 	L D. 核心功能流程
-		L1 使用者輸入目的地 (搜尋列, Nominatim 地址搜尋, 建議下拉)
+		L1 使用者輸入目的地 (搜尋列, Google Places Autocomplete, 建議下拉)
+			== localhost ====
+			L 輸入文字 → debounce 400ms → /api/places/autocomplete?input=查詢文字 (PY_server proxy)
+			L 點選建議 → /api/places/details?place_id=xxx → 取得 lat/lng
+			== 部署版 (GitHub Pages) ====
+			L 輸入文字 → debounce 400ms → 瀏覽器直接 POST https://places.googleapis.com/v1/places:autocomplete
+			L 瀏覽器自動帶 Referer: https://morrislu.github.io/parknow/ → 通過 Google 網站限制
+			L 點選建議 → GET https://places.googleapis.com/v1/places/{placeId} → 取得 lat/lng
+			== 共通 ====
+			L 顯示 suggestions (名稱 + 地址)
 		L2 選擇目的地後自動搜尋附近停車場
 			L 判斷所在縣市 (反向地理編碼)
 			== 大台北地區 ====
@@ -124,9 +136,24 @@
 		L Table API: https://router.project-osrm.org/table/v1/driving/{coords}?sources=0&annotations=duration,distance
 		L 第一個點是目的地, 後面是停車場
 		L 回傳 durations[0] (秒) 和 distances[0] (公尺)
-		== Nominatim ====
-		L 地址搜尋: https://nominatim.openstreetmap.org/search?format=json&q={query}&countrycodes=tw&limit=5
+		== Google Places API New (地址搜尋) ====
+		L Autocomplete (New API)
+			L 端點: POST https://places.googleapis.com/v1/places:autocomplete
+			L Headers: Content-Type: application/json, X-Goog-Api-Key: {key}
+			L Body: {"input": "查詢文字", "includedRegionCodes": ["tw"], "languageCode": "zh-TW"}
+			L 回傳: suggestions[] → placePrediction (placeId, structuredFormat.mainText, secondaryText)
+		L Details (New API)
+			L 端點: GET https://places.googleapis.com/v1/places/{placeId}
+			L Headers: X-Goog-Api-Key: {key}, X-Goog-FieldMask: displayName,formattedAddress,location
+			L 回傳: location (latitude, longitude), displayName.text
+		L API Key 設定
+			L Google Cloud Console 限制: API 限制 = Places API (New), 應用程式限制 = 網站
+			L 允許網站: https://morrislu.github.io/parknow/*
+			L 部署版: key 寫在 app.js (GOOGLE_PLACES_KEY), 由網站限制保護
+			L localhost: key 寫在 .env, 透過 PY_server.py proxy 注入
+		== Nominatim (反向地理編碼) ====
 		L 反向地理編碼: https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lng}
+		L 用途: 取得縣市代碼 (判斷使用哪個停車場 API), 免費
 
 	L G. 已解決問題記錄
 		L1 TWD97 座標系統 - 台灣政府資料用 TWD97 TM2, 實作完整數學轉換公式到 WGS84
@@ -140,45 +167,158 @@
 		L9 新竹縣代碼 typo - HssinchuCounty 修正為 HsinchuCounty
 		L10 Worker 合併 - ntpc-proxy.js + tdx-proxy.js 合併為單一 Worker
 		L11 Port 佔用 - OSError: Address in use, 用 fuser -k 8080/tcp 強制釋放 port
+		L12 Google Places API 部署版 REQUEST_DENIED - Cloudflare Worker proxy 呼叫 Google 時 Referer 不符網站限制, 改為瀏覽器直接呼叫 Google API
 
 	L H. 版本歷史
 		== v1~v6 ====
 		L 台北+新北直連 API, TWD97 座標轉換, OSRM 排名, Top 5 推薦
 		== v7 ====
 		L TDX Worker 範本建立, 架構規劃
-		== v8 (目前) ====
+		== v8 ====
 		L 全台灣 23 縣市 TDX API 擴充
 		L Worker 合併 (NTPC + TDX 統一代理)
 		L parking-service.js 支援 TDX 搜尋 + 去重
 		L PY_server.py 加入 TDX 本地代理路由
 		L location.js 新竹縣代碼 typo 修正
+		== v9 ====
+		L 地址搜尋從 Nominatim 改用 Google Places API (搜尋品質大幅提升)
+		L PY_server.py + CF Worker 新增 /api/places/autocomplete, /api/places/details proxy 路由
+		L Nominatim 仍保留用於反向地理編碼 (免費, 用途不同)
+		== v9.1 (目前) ====
+		L 部署版 Google Places API 改為瀏覽器直接呼叫 (不再走 CF Worker proxy)
+		L 原因: Worker proxy 的 Referer 不符合 Google API key 網站限制, 導致 REQUEST_DENIED
+		L app.js 新增 isLocal 判斷, localhost 走 PY_server proxy, 部署版走瀏覽器直呼
+		L API key 寫在 app.js (GOOGLE_PLACES_KEY), 由 Google 網站限制保護安全性
+		L 新增 API 錯誤回饋: data.error / data.error_message 時顯示 toast 提示
 
 	L I. 目前狀態
-		L Windows Chrome 測試通過
-			L GPS 定位正常 (Chrome DevTools Sensors 模擬)
+		L localhost (PY_server.py) 測試通過
+			L GPS 定位正常
 			L 地圖正確顯示 (OSM 亮色圖磚)
-			L 搜尋目的地功能正常 (Nominatim)
-			L 停車場搜尋正常 (台北+新北, 雙 API 平行)
+			L 搜尋目的地功能正常 (Google Places API, 走 proxy)
+			L 停車場搜尋正常 (台北+新北+全台 TDX)
 			L OSRM 開車距離排名正常
 			L Top 5 推薦系統正常
-			L 半徑選擇器正常 (1km/2km/5km/10km)
-		L v8 新增功能
-			L TDX API 全台灣 23 縣市停車場搜尋
-			L Cloudflare Worker 合併代理 (NTPC + TDX)
-			L 大台北去重邏輯 (直連 + TDX 不重複)
-			L TDX 未設定時友善降級 (僅台北+新北可用)
+		L 部署版 (GitHub Pages) 測試通過
+			L 搜尋目的地功能正常 (Google Places API, 瀏覽器直呼)
+			L 停車場搜尋正常 (走 Cloudflare Worker proxy)
+			L 網址: https://morrislu.github.io/parknow/
 		L 待處理
 			L iPhone 15 適配與部署
 			L 停車場收藏功能 (localStorage)
 			L 停車費估算
 
-	L J. TDX 啟用步驟
-		L1 註冊 TDX 帳號: https://tdx.transportdata.tw/register (免費)
-		L2 取得 client_id + client_secret
-		L3 建立 Cloudflare Worker + 設定環境變數 (TDX_CLIENT_ID, TDX_CLIENT_SECRET)
-		L4 部署 worker/tdx-proxy.js 至 Cloudflare
-		L5 確認 parking-service.js 中 CF_WORKER_URL 指向 Worker URL
-		L 未設定 TDX 時: App 仍正常使用台北+新北, 其他城市回傳空結果
+	L J. 三平台完整設定操作流程
+
+		== 1. Google Cloud Console (API key 管理) ====
+		L 網址: https://console.cloud.google.com/apis/credentials
+		-- 首次建立 ----
+		L1 建立專案 (或選擇既有專案)
+		L2 啟用 API: 左選單 → 程式庫 → 搜尋 "Places API (New)" → 啟用
+		L3 建立 API Key: 憑證 → 建立憑證 → API 金鑰
+		L4 設定 API 限制:
+			L API restrictions → 選取 "Places API (New)"
+		L5 設定應用程式限制:
+			L Application restrictions → 網站 (HTTP referrers)
+			L 新增: https://morrislu.github.io/parknow/*
+			L 注意: 此限制只對瀏覽器直接呼叫有效, server proxy 會因 Referer 不符被拒
+		L6 按 Save, 等待 1-5 分鐘生效
+		-- 查看/修改 ----
+		L 憑證 → 點擊 API key 名稱 → 可修改限制和允許網站
+		-- 刪除 ----
+		L 憑證 → API key 右側 ... → 刪除金鑰
+		-- 注意事項 ----
+		L 目前 key: AIzaSyDmi61a6CcZvl6pBLb9OpCboh0tFcHsR4E
+		L 此 key 同時寫在 .env (localhost 用) 和 app.js (部署版用)
+		L 若更換 key, 兩個地方都要改
+
+		== 2. GitHub (程式碼 + GitHub Pages 部署) ====
+		L 程式碼 Repo: https://github.com/Morrislu/parknow
+		L GitHub Pages 網址: https://morrislu.github.io/parknow/
+		-- 部署流程 ----
+		L1 本地修改程式碼
+		L2 git add + git commit + git push origin main
+		L3 GitHub Pages 自動部署 (約 1-2 分鐘)
+		L4 瀏覽器開 https://morrislu.github.io/parknow/ 驗證
+		L5 如有 Service Worker 快取問題: Ctrl+Shift+R 強制刷新
+		-- GitHub Pages 設定位置 ----
+		L Repo → Settings → Pages → Source: Deploy from a branch → Branch: main / root
+		-- 注意事項 ----
+		L .env 不要 push 到 GitHub (已在 .gitignore)
+		L API key 寫在 app.js 是安全的 (由 Google 網站限制保護)
+
+		== 3. Cloudflare Workers (API proxy) ====
+		L Dashboard: https://dash.cloudflare.com → Workers & Pages → parknow
+		L Worker URL: https://parknow.kiwi-lu1130.workers.dev
+		L Worker 程式碼: worker/tdx-proxy.js
+		-- Secrets 設定位置 ----
+		L Dashboard → Workers & Pages → parknow → Settings → Variables and Secrets
+		-- 目前已設定的 Secrets ----
+		L GOOGLE_PLACES_API_KEY (Google Places API key, Worker 側暫時不用但保留)
+		L TDX_CLIENT_ID (TDX 平台 client_id: kiwi_lu1130-c10e0c66-b4cf-4543)
+		L TDX_CLIENT_SECRET (TDX 平台 client_secret)
+		-- 新增 Secret ----
+		L1 Dashboard → parknow → Settings → Variables and Secrets
+		L2 點 Add → 輸入 Name 和 Value → 選 Encrypt → Save and deploy
+		-- 修改 Secret ----
+		L1 同上位置, 點已有 secret 的 Edit → 輸入新值 → Save and deploy
+		L 注意: Secret 值加密儲存, 設定後無法查看, 只能覆蓋
+		-- 部署 Worker 程式碼 ----
+		L 方法 A (CLI): npx wrangler deploy (需 CLOUDFLARE_API_TOKEN)
+		L 方法 B (Dashboard): Workers & Pages → parknow → 點 "Edit code" → 貼上程式碼 → Save and deploy
+		-- Worker 代理的 API ----
+		L /api/ntpc/desc → 新北市停車場靜態資訊
+		L /api/ntpc/avail → 新北市即時空位
+		L /api/parking/{City} → TDX 全台停車場 (需 TDX secrets)
+		L /api/places/autocomplete → Google Places (有設定但部署版已不走此路由)
+		L /api/places/details → Google Places Details (有設定但部署版已不走此路由)
+
+		== 4. 本地開發環境 (.env) ====
+		L 檔案位置: 專案根目錄 .env
+		L 格式:
+			TDX_CLIENT_ID=你的client_id
+			TDX_CLIENT_SECRET=你的client_secret
+			GOOGLE_PLACES_API_KEY=你的api_key
+		L 載入方式: PY_server.py 啟動時自動讀取 (load_dotenv 函數)
+		L 注意: 每行開頭不要有空格
+
+		== 5. 各環境 API 請求路徑總覽 ====
+		L 功能: 地址搜尋 (Google Places)
+			L localhost → PY_server.py proxy → Google API (key 從 .env)
+			L GitHub Pages → 瀏覽器直接呼叫 Google API (key 從 app.js, Referer 保護)
+		L 功能: 停車場搜尋 (TDX)
+			L localhost → PY_server.py proxy → TDX API (key 從 .env)
+			L GitHub Pages → Cloudflare Worker proxy → TDX API (key 從 Worker secrets)
+		L 功能: 新北市停車場
+			L localhost → PY_server.py proxy → data.ntpc.gov.tw
+			L GitHub Pages → Cloudflare Worker proxy → data.ntpc.gov.tw
+
+	L K. Lesson Learn (2026-05-31)
+
+		== 事件: Google Places API 部署版搜尋建議不顯示 ====
+		L 花費: 3 天排查
+		L 現象: localhost 正常, GitHub Pages 版輸入地址無任何建議出現
+		L 根因: Cloudflare Worker proxy 呼叫 Google API 時, Referer 是 Worker 的 URL,
+			不符合 API key 的網站限制 (https://morrislu.github.io/parknow/), Google 回傳 REQUEST_DENIED
+		L 為何難發現:
+			L1 前端 catch 只 console.error, 使用者看不到任何錯誤提示 (靜默失敗)
+			L2 localhost 用 PY_server.py proxy 沒有網站限制問題, 所以一直正常
+			L3 Google 回傳的錯誤格式是舊版 API 的 (predictions/status), 容易誤判
+		L 解法: 部署版改為瀏覽器直接呼叫 Google Places API, 不再走 Worker proxy
+		L 修改檔案: js/app.js (searchAddress, onSuggestionClick)
+
+		== 防範準則 (已寫入 CLAUDE.md) ====
+		L1 第三方 API 呼叫前先確認「誰是直接呼叫者」
+			L 瀏覽器呼叫 → API key 用「網站限制」
+			L Server proxy 呼叫 → API key 用「IP 限制」或「無限制」
+			L 禁止混用: 不可以用「網站限制」的 key 放在 server proxy
+		L2 所有 API 呼叫必須有使用者可見的錯誤提示
+			L 禁止只 console.error 不顯示 toast
+			L 檢查 data.error / data.error_message 欄位
+		L3 部署前用 curl 驗證部署版 API 路徑
+			L curl -s "https://你的proxy/api/endpoint?param=test"
+			L 確認回傳正確再算完成
+		L4 Google 前端 API (Maps/Places) 不要走 server proxy, 讓瀏覽器直接呼叫
 
 == 補充 =============================================
 
@@ -202,6 +342,8 @@
 		L /api/ntpc/desc → 代理到 data.ntpc.gov.tw desc dataset
 		L /api/ntpc/avail → 代理到 data.ntpc.gov.tw avail dataset
 		L /api/parking/{City} → 代理到 TDX API (需 TDX_CLIENT_ID, TDX_CLIENT_SECRET 環境變數)
+		L /api/places/autocomplete → 代理到 Google Place Autocomplete API (需 GOOGLE_PLACES_API_KEY)
+		L /api/places/details → 代理到 Google Place Details API (需 GOOGLE_PLACES_API_KEY)
 		L 其他路徑 → 靜態檔案伺服 (index.html, JS, CSS)
 		L 回應加入 Access-Control-Allow-Origin: * 解決 CORS
 
@@ -209,5 +351,8 @@
 		L /api/ntpc/desc → 代理新北市停車場靜態資訊
 		L /api/ntpc/avail → 代理新北市即時空位
 		L /api/parking/{City} → TDX OAuth2 認證 + 取停車場資料 + 過濾排序
+		L /api/places/autocomplete → Google Place Autocomplete (程式碼保留但部署版已不走此路由)
+		L /api/places/details → Google Place Details (程式碼保留但部署版已不走此路由)
 		L 統一 CORS headers
 		L TDX token 快取 (到期前 60 秒刷新)
+		L 重要: Google Places API 不適合走 Worker proxy (Referer 不符網站限制會被拒)

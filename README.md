@@ -7,7 +7,13 @@
 
 **Demo:** https://morrislu.github.io/parknow/
 
-![ParkNow Screenshot](chrome畫面.png)
+## Screenshot
+
+| Step 1: 搜尋目的地 | Step 2: 導航確認 | Step 3: Apple Maps 導航 |
+|:---:|:---:|:---:|
+| ![搜尋目的地](screenshots/step1-search.jpg) | ![導航確認](screenshots/step2-navigate.jpg) | ![Apple Maps](screenshots/step3-apple-maps.jpg) |
+
+> 輸入「台北101」→ 自動搜尋附近停車場 → Top 5 推薦 → 一鍵導航至 Apple Maps
 
 ## 功能特色
 
@@ -44,7 +50,7 @@
 | 資料來源 | 台北市 API + 新北市 API + TDX API (全台 23 縣市) |
 | 代理層 | Cloudflare Worker (解決 CORS + TDX OAuth2 Token 管理) |
 | 路線計算 | OSRM (Open Source Routing Machine) |
-| 地址搜尋 | Nominatim (OpenStreetMap 地理編碼) |
+| 地址搜尋 | Google Places API (New) |
 
 ## 專案結構
 
@@ -162,7 +168,8 @@ const CF_WORKER_URL = 'https://parknow.your-name.workers.dev';
 | [新北市停車資訊](https://data.ntpc.gov.tw/) | 新北市停車場資料 + 即時空位 | 無需認證 (需 CORS 代理) | 免費 |
 | [TDX 運輸資料](https://tdx.transportdata.tw/) | 全台 23 縣市停車場 | OAuth2 Client Credentials | 免費額度 |
 | [OSRM](https://router.project-osrm.org/) | 開車路線距離計算 | 無需認證 | 免費 |
-| [Nominatim](https://nominatim.openstreetmap.org/) | 地址搜尋 / 反向地理編碼 | 無需認證 | 免費 |
+| [Google Places API](https://developers.google.com/maps/documentation/places/web-service) | 地址搜尋 (Autocomplete + Details) | API Key (網站限制) | 免費額度 |
+| [Nominatim](https://nominatim.openstreetmap.org/) | 反向地理編碼 (城市判斷) | 無需認證 | 免費 |
 | [OpenStreetMap](https://www.openstreetmap.org/) | 地圖圖磚 | 無需認證 | 免費 |
 
 ## 支援城市
