@@ -300,9 +300,41 @@ const App = {
       this.top5 = candidates.slice(0, 5);
     }
 
-    // 預設選 #1
+    // 預設選 #1，先顯示面板，再背景取步行資料
     this.currentPick = 0;
     this.showRecommendPanel();
+    this.fetchWalkingData(this.top5, destLat, destLng);
+  },
+
+  // === OSRM 步行距離（停車場 → 目的地）===
+
+  async fetchWalkingData(top5, destLat, destLng) {
+    if (!top5 || top5.length === 0) return;
+    try {
+      const coords = [`${destLng},${destLat}`, ...top5.map(l => `${l.lng},${l.lat}`)].join(';');
+      const url = `https://router.project-osrm.org/table/v1/foot/${coords}?sources=0&annotations=duration,distance`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.code === 'Ok' && data.durations && data.distances) {
+        const durations = data.durations[0];
+        const distances = data.distances[0];
+        top5.forEach((lot, i) => {
+          lot.walkDist = distances[i + 1];
+          lot.walkTime = durations[i + 1];
+        });
+        console.log('[DEBUG] === OSRM 步行距離 Top 5 ===');
+        top5.forEach((c, i) => {
+          const min = Math.round((c.walkTime || 0) / 60);
+          const m = Math.round(c.walkDist || 0);
+          console.log(`[DEBUG] #${i + 1} ${c.name} | 步行 ${m}m / ${min}分`);
+        });
+        // 更新面板顯示
+        this.showRecommendPanel();
+        this.renderParkingList(this._lastLots || this.top5);
+      }
+    } catch (e) {
+      console.warn('[DEBUG] OSRM 步行資料取得失敗:', e);
+    }
   },
 
   // === 推薦 Top 5 面板 ===
@@ -315,19 +347,26 @@ const App = {
     // 更新推薦資訊
     const driveMin = lot.driveTime ? Math.max(1, Math.round(lot.driveTime / 60)) : '?';
     const driveDist = lot.driveDist ? (lot.driveDist / 1000).toFixed(1) + 'km' : LocationService.formatDistance(lot.distance);
+    const walkMin = lot.walkTime ? Math.max(1, Math.round(lot.walkTime / 60)) : null;
+    const walkDist = lot.walkDist ? (lot.walkDist < 1000 ? Math.round(lot.walkDist) + 'm' : (lot.walkDist / 1000).toFixed(1) + 'km') : null;
+    const walkInfo = walkMin ? ` | 步行 ${walkDist} / ${walkMin}分` : '';
 
     document.getElementById('recommendName').textContent = lot.name;
     document.getElementById('recommendInfo').textContent =
-      `開車 ${driveDist} / ${driveMin}分鐘 | 空位 ${lot.available} 個`;
+      `開車 ${driveDist} / ${driveMin}分鐘${walkInfo} | 空位 ${lot.available} 個`;
 
     // Top 5 快速切換按鈕
     const switchDiv = document.getElementById('top5Switch');
     switchDiv.innerHTML = this.top5.map((t, i) => {
       const active = i === this.currentPick ? 'active' : '';
-      const min = t.driveTime ? Math.max(1, Math.round(t.driveTime / 60)) : '?';
+      const drKm = t.driveDist ? (t.driveDist / 1000).toFixed(1) + 'km' : '?';
+      const drMin = t.driveTime ? Math.max(1, Math.round(t.driveTime / 60)) : '?';
+      const wkDist = t.walkDist ? (t.walkDist < 1000 ? Math.round(t.walkDist) + 'm' : (t.walkDist / 1000).toFixed(1) + 'km') : null;
+      const wkMin = t.walkTime ? Math.max(1, Math.round(t.walkTime / 60)) : null;
       return `<button class="top5-btn ${active}" data-idx="${i}">
         <span class="top5-rank">#${i + 1}</span>
-        <span class="top5-time">${min}分</span>
+        <span class="top5-drive">🚗 ${drKm}/${drMin}分</span>
+        ${wkMin ? `<span class="top5-walk">🚶 ${wkDist}/${wkMin}分</span>` : '<span class="top5-walk">🚶 --</span>'}
         <span class="top5-avail">${t.available}位</span>
       </button>`;
     }).join('');
@@ -355,7 +394,7 @@ const App = {
   // === 列表 ===
 
   renderParkingList(lots) {
-    const top5Ids = new Set(this.top5.map(t => t.id));
+    this._lastLots = lots;
     const list = document.getElementById('parkingList');
 
     list.innerHTML = lots.map((lot) => {
@@ -363,14 +402,22 @@ const App = {
       const availText = ParkingService.getAvailabilityText(lot.available);
       const safeName = lot.name.replace(/'/g, "\\'");
 
-      // 距離顯示：有開車距離就顯示開車距離
+      // 開車距離顯示
       let distDisplay;
       if (lot.driveDist) {
         const km = (lot.driveDist / 1000).toFixed(1);
         const min = Math.max(1, Math.round(lot.driveTime / 60));
-        distDisplay = `${km}km / ${min}分`;
+        distDisplay = `🚗 ${km}km/${min}分`;
       } else {
         distDisplay = LocationService.formatDistance(lot.distance);
+      }
+
+      // 步行距離顯示（Top 5 才有）
+      let walkDisplay = '';
+      if (lot.walkDist != null) {
+        const wm = lot.walkDist < 1000 ? Math.round(lot.walkDist) + 'm' : (lot.walkDist / 1000).toFixed(1) + 'km';
+        const wMin = Math.max(1, Math.round(lot.walkTime / 60));
+        walkDisplay = `<span class="walk-info">🚶 ${wm}/${wMin}分</span>`;
       }
 
       const rank = this.top5.findIndex(t => t.id === lot.id);
@@ -384,6 +431,7 @@ const App = {
             <span class="distance">${distDisplay}</span>
           </div>
           <div class="address">${lot.address}</div>
+          ${walkDisplay ? `<div class="card-walk">${walkDisplay}</div>` : ''}
           <div class="card-bottom">
             <span class="availability ${level}">${availText}</span>
             <button class="nav-btn" onclick="event.stopPropagation(); Navigation.navigateTo(${lot.lat}, ${lot.lng}, '${safeName}')">
