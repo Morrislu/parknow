@@ -256,84 +256,59 @@ const App = {
     }
   },
 
-  // === OSRM 開車距離排名 ===
+  // === 排名：有空位優先，再按步行直線距離 ===
 
   async rankByDriving(lots, destLat, destLng) {
-    // 取直線距離最近的 15 個候選，送 OSRM 計算
     const candidates = lots.slice(0, 15);
 
-    try {
-      // OSRM Table API：第一個點是目的地，後面是停車場
-      const coords = [`${destLng},${destLat}`, ...candidates.map(l => `${l.lng},${l.lat}`)].join(';');
-      const url = `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`;
+    // 步行距離 = lot.distance（直線，已在搜尋時計算），速度 5km/h = 83.3m/分
+    candidates.forEach(lot => {
+      lot.walkDist = lot.distance;
+      lot.walkTime = (lot.distance / 83.33) * 60; // 秒
+    });
 
-      const resp = await fetch(url);
-      const data = await resp.json();
+    // 排序：有空位 → 步行距離近
+    candidates.sort((a, b) => {
+      const aAvail = a.available > 0 ? 0 : 1;
+      const bAvail = b.available > 0 ? 0 : 1;
+      if (aAvail !== bAvail) return aAvail - bAvail;
+      return a.walkDist - b.walkDist;
+    });
 
-      if (data.code === 'Ok' && data.durations && data.distances) {
-        const durations = data.durations[0]; // 從目的地到各停車場的秒數
-        const distances = data.distances[0]; // 從目的地到各停車場的公尺
+    this.top5 = candidates.slice(0, 5);
 
-        // 附加開車距離到候選
-        candidates.forEach((lot, i) => {
-          lot.driveDist = distances[i + 1];    // index 0 是目的地自己
-          lot.driveTime = durations[i + 1];
-        });
+    console.log('[DEBUG] === Top 5（有空位優先 + 步行距離）===');
+    this.top5.forEach((c, i) => {
+      const wMin = Math.round(c.walkTime / 60);
+      console.log(`[DEBUG] #${i + 1} ${c.name} | 步行 ${Math.round(c.walkDist)}m/${wMin}分 | 空位 ${c.available}`);
+    });
 
-        // 按開車距離排序
-        candidates.sort((a, b) => (a.driveDist || Infinity) - (b.driveDist || Infinity));
+    // 背景取開車距離（僅供顯示）
+    this.fetchDrivingData(this.top5, destLat, destLng);
 
-        console.log('[DEBUG] === OSRM 開車距離 Top 5 ===');
-        candidates.slice(0, 5).forEach((c, i) => {
-          const min = Math.round((c.driveTime || 0) / 60);
-          const km = ((c.driveDist || 0) / 1000).toFixed(1);
-          console.log(`[DEBUG] #${i + 1} ${c.name} | 開車 ${km}km / ${min}分 | 空位 ${c.available}`);
-        });
-
-        this.top5 = candidates.slice(0, 5);
-      } else {
-        console.warn('[DEBUG] OSRM 回傳異常，降級用直線距離');
-        this.top5 = candidates.slice(0, 5);
-      }
-    } catch (e) {
-      console.warn('[DEBUG] OSRM 呼叫失敗，降級用直線距離:', e);
-      this.top5 = candidates.slice(0, 5);
-    }
-
-    // 預設選 #1，先顯示面板，再背景取步行資料
     this.currentPick = 0;
     this.showRecommendPanel();
-    this.fetchWalkingData(this.top5, destLat, destLng);
   },
 
-  // === OSRM 步行距離（停車場 → 目的地）===
+  // === OSRM 開車距離（背景取得，僅供顯示）===
 
-  async fetchWalkingData(top5, destLat, destLng) {
+  async fetchDrivingData(top5, destLat, destLng) {
     if (!top5 || top5.length === 0) return;
     try {
       const coords = [`${destLng},${destLat}`, ...top5.map(l => `${l.lng},${l.lat}`)].join(';');
-      const url = `https://router.project-osrm.org/table/v1/foot/${coords}?sources=0&annotations=duration,distance`;
+      const url = `https://router.project-osrm.org/table/v1/driving/${coords}?sources=0&annotations=duration,distance`;
       const resp = await fetch(url);
       const data = await resp.json();
       if (data.code === 'Ok' && data.durations && data.distances) {
-        const durations = data.durations[0];
-        const distances = data.distances[0];
         top5.forEach((lot, i) => {
-          lot.walkDist = distances[i + 1];
-          lot.walkTime = durations[i + 1];
+          lot.driveDist = data.distances[0][i + 1];
+          lot.driveTime = data.durations[0][i + 1];
         });
-        console.log('[DEBUG] === OSRM 步行距離 Top 5 ===');
-        top5.forEach((c, i) => {
-          const min = Math.round((c.walkTime || 0) / 60);
-          const m = Math.round(c.walkDist || 0);
-          console.log(`[DEBUG] #${i + 1} ${c.name} | 步行 ${m}m / ${min}分`);
-        });
-        // 更新面板顯示
         this.showRecommendPanel();
         this.renderParkingList(this._lastLots || this.top5);
       }
     } catch (e) {
-      console.warn('[DEBUG] OSRM 步行資料取得失敗:', e);
+      console.warn('[DEBUG] OSRM 開車資料取得失敗:', e);
     }
   },
 
