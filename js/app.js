@@ -387,13 +387,12 @@ const App = {
         distDisplay = LocationService.formatDistance(lot.distance);
       }
 
-      // 步行距離顯示（Top 5 才有）
-      let walkDisplay = '';
-      if (lot.walkDist != null) {
-        const wm = lot.walkDist < 1000 ? Math.round(lot.walkDist) + 'm' : (lot.walkDist / 1000).toFixed(1) + 'km';
-        const wMin = Math.max(1, Math.round(lot.walkTime / 60));
-        walkDisplay = `<span class="walk-info">🚶 ${wm}/${wMin}分</span>`;
-      }
+      // 步行距離：所有停車場都用 lot.distance 計算（5km/h）
+      const wDist = lot.walkDist != null ? lot.walkDist : lot.distance;
+      const wTime = lot.walkTime != null ? lot.walkTime : (lot.distance / 83.33) * 60;
+      const wm = wDist < 1000 ? Math.round(wDist) + 'm' : (wDist / 1000).toFixed(1) + 'km';
+      const wMin = Math.max(1, Math.round(wTime / 60));
+      const walkDisplay = `<span class="walk-info">🚶 ${wm}/${wMin}分</span>`;
 
       const rank = this.top5.findIndex(t => t.id === lot.id);
       const isTop = rank >= 0;
